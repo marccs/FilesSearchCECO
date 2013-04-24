@@ -41,54 +41,53 @@ object logFileActor extends Actor {
 	private var logFileNameVar : String = null;
 
 	def logFileName(f : String) = {
-	  logFileNameVar = f;
+		logFileNameVar = f;
 	}
 
 	def getCurrentDateTime : String = {
 		var cal : java.util.Calendar = new java.util.GregorianCalendar
-	    var creationDate : java.util.Date = cal.getTime();
-	    var date_format : java.text.SimpleDateFormat  = new java.text.SimpleDateFormat("MMM dd,yyyy HH:mm:ss");
-	    return date_format.format(creationDate)
+		var creationDate : java.util.Date = cal.getTime();
+		var date_format : java.text.SimpleDateFormat  = new java.text.SimpleDateFormat("MMM dd,yyyy HH:mm:ss");
+		return date_format.format(creationDate)
 	}
 
 	def act() {
 
-	  // List to save words
-	  var words = scala.collection.mutable.Buffer[String]()
+		// List to save words
+		var words = scala.collection.mutable.Buffer[String]()
 
-	  var conta : Int = 0
-	  var output : java.io.FileWriter = new java.io.FileWriter(logFileNameVar)
+		var conta : Int = 0
+		var output : java.io.FileWriter = new java.io.FileWriter(logFileNameVar)
 
-	  println("[logFileActor] starting... ");
+		println("[logFileActor] starting... ");
 
-	  loop {
-		react {
-			case msgLog(s : String) => {
+		loop {
+			react {
+				case msgLog(s : String) => {
 
-		    	 try {
-		    	 		var writer  : java.io.BufferedWriter = new java.io.BufferedWriter(output,32 * 1024);
+					try {
+						var writer  : java.io.BufferedWriter = new java.io.BufferedWriter(output,32 * 1024);
 
-		    	  		writer.write(s+"\n");
-				    	writer.flush();
+						writer.write(s+"\n");
+						writer.flush();
 
-				 } catch {
-				      	case e:java.io.IOException => {
-				      	  e.printStackTrace();
-				      	}
-				 }
+					} catch {
+						case e:java.io.IOException => {
+							e.printStackTrace();
+						}
+					}
+				}
+				case StopLog => {
 
-		      }
-		      case StopLog => {
+					output.close();
 
-			    	output.close();
+					println("[logFileActor] stopping... ");
+					exit()
+				}
+			}
+		}
 
-			     	println("[logFileActor] stopping... ");
-			     	exit();
-		      }
-		  }
-	  }
-	  
-  }
+	}
   
 }
 
@@ -99,37 +98,36 @@ class FileCrawler(fileScanner : Actor, fileFilter : FileFilter, root : File) ext
 
 	def act() {
 
-	  println("[FileCrawler] starting...");
+		println("[FileCrawler] starting...");
 
-	  loop {
-	  	react {
-	      		case Crawl => {
+		loop {
+			react {
+				case Crawl => {
 
 					try {
 						crawl(root);
-			    	} catch {
-			      		case e:InterruptedException =>
+					} catch {
+						case e:InterruptedException =>
 							println("[FileCrawler] Got local exception: " + e);
 							System.exit(0);
-				  		case e:Exception =>
+						case e:Exception =>
 							println("other EXCEPTION"+e.printStackTrace());
 					}
 
-  	            	this ! Stop
-
-	      		}
-	      		case Stop =>
-
-	        		fileScanner ! Stop
-
-		        	println("[FileCrawler] stopping...");
-		        	exit();
-	    }
-	  }
+					this ! Stop
+				}
+				case Stop =>
+					fileScanner ! Stop
+					println("[FileCrawler] stopping...");
+					exit()
+			}
+		}
 
 	}
 
+
 	def alreadyIndexed(f : File) : Boolean = return false
+
 
 	@throws(classOf[java.lang.InterruptedException])
 	def crawl(root : File) {
@@ -139,21 +137,19 @@ class FileCrawler(fileScanner : Actor, fileFilter : FileFilter, root : File) ext
 		entries = root.listFiles(fileFilter)
 
 		if (entries != null) {
-
 			entries.foreach { entry =>
-				  
-			  	if (!entry.isHidden()) {
-				  if (entry.isDirectory()) {
-				    fileScanner ! Index(entry)
-				    crawl(entry)
-				  }
-				  else if (!alreadyIndexed(entry)) {
-					  fileScanner ! Index(entry)
-				  }
-			  	}
+				if (!entry.isHidden()) {
+					if (entry.isDirectory()) {
+						fileScanner ! Index(entry)
+						crawl(entry)
+					}
+					else if (!alreadyIndexed(entry)) {
+						fileScanner ! Index(entry)
+					}
+				}
 			}
 		}
-    	}
+	}
 
 }
 
@@ -161,46 +157,38 @@ class FileCrawler(fileScanner : Actor, fileFilter : FileFilter, root : File) ext
 // Monitor
 class Monitor(fscanner : Actor) extends Actor with ExceptionModel {
 
-
 	def act() {
 
 		println("[Monitor] starting...")
 
 		loop {
 			react {
-			  	case Stop => {
+				case Stop => {
 					println("[Monitor] stopping...")
-				  	exit()
-			  	}
-			  	case check => {
+					exit()
+				}
+				case check => {
 					_try {
-					 
 						while (true) {
 							_check
-					  	}
-
-				  	} _catch {
+						}
+					} _catch {
 
 						/*
-						  	We are interested in ConcurrentExceptions.
-						*/
+						We are interested in ConcurrentExceptions.
+						 */
 						e:ConcurrentException => 
 							e match {
 								case e:NewIndexerException => {
 									var in = new Indexer(this)
-
 									fscanner ! NewIndexer(in)
-
 									in.start()
-
 									in ! Word(e.word, e.path_filename)
-
 									Main.indexers = in :: Main.indexers
-
 								}
-						     }		    
-				  	}
-				}				  
+							}
+					}
+				}
 			}
 		}
 
@@ -214,64 +202,54 @@ class FileScanner(mainActor : Actor) extends Actor with ExceptionModel {
 	var monitor : Monitor = null
 	var indx : Indexer = null
 
-    def act() {
+	def act() {
 
-    	println("[FileScanner] starting...")
+		println("[FileScanner] starting...")
 
+		var resultIndexFile : Boolean = true
 
-    	var resultIndexFile : Boolean = true
-
-    	loop {
+		loop {
 			react {
-			  	case StartFileScanner(m : Monitor) => {
-			  		monitor = m
-			  		indx =  new Indexer(monitor)
-			  		Main.indexers = indx :: Main.indexers 
-			  		indx.start
-			  	
-			  	}
-			    case Index(fi : java.io.File) => {
-			    	indexFile(fi)
-			    }
-			    case NewIndexer(in : Indexer) => {
-			    	indx = in
-			    }
-			    case Stop => {
-
-			    	println("[FileScanner] stopping...")
-
-			    	mainActor ! Search
-
-			    	exit()
-			    }
+				case StartFileScanner(m : Monitor) => {
+					monitor = m
+					indx =  new Indexer(monitor)
+					Main.indexers = indx :: Main.indexers 
+					indx.start
+				}
+				case Index(fi : java.io.File) => {
+					indexFile(fi)
+				}
+				case NewIndexer(in : Indexer) => {
+					indx = in
+				}
+				case Stop => {
+					println("[FileScanner] stopping...")
+					mainActor ! Search
+					exit()
+				}
 			}
 		}
-    }
+	}
 
 
-    def indexFile(file : java.io.File) = {
+	def indexFile(file : java.io.File) = {
 
-    	// Index the file...
+		// Index the file...
 
-    	var fileName : String = file.getName()
-    	var absolutePath : String = file.getAbsolutePath()
-    	var filePath : String = absolutePath.substring(0,absolutePath.lastIndexOf(File.separator))
+		var fileName : String = file.getName()
+		var absolutePath : String = file.getAbsolutePath()
+		var filePath : String = absolutePath.substring(0,absolutePath.lastIndexOf(File.separator))
 
-    	var wordArray : Array[String] = splitFileName(fileName)
+		var wordArray : Array[String] = splitFileName(fileName)
 
-    	wordArray.foreach { w =>
+		wordArray.foreach { w =>
+			if (w != "") {
+				w.trim()
+				indx ! Word(w, filePath+"/"+fileName)
+			}
+		}
 
-    	  	if (w != "") {
-
-    	  		w.trim()
-
-    	  		indx ! Word(w, filePath+"/"+fileName)
-
-    	  	}
-
-    	}
-
-    }
+	}
 
 	def splitFileName(fileName : String) : Array[String] = {
 		val fileNameArray : Array[String] = fileName.split("[-:. _]+");
@@ -284,7 +262,6 @@ class FileScanner(mainActor : Actor) extends Actor with ExceptionModel {
 // Indexer
 class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 
-
 	// ConcurrentHaspMap allows atomic operations
 	// hash, index
 	val wordsHashMap = new java.util.Hashtable[Long, Int](5000)
@@ -293,7 +270,6 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 	var arrayOfPaths : Array[Array[String]] = new Array[Array[String]](5000)
 	var Index : Int = 0
 
-
 	def  insertArrayOfPaths(w : String, path_filename : String) {
 
 		var hashkey 		: Long 		= 0L		
@@ -301,20 +277,19 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 		var j 				: Int 		= 0
 		var existeHashkey 	: Boolean 	= false
 
-	  	hashkey = ScanAndIndex.FNV_1(w)
+		hashkey = ScanAndIndex.FNV_1(w)
 
+		if (!wordsHashMap.containsKey(hashkey)) {
 
-    	if (!wordsHashMap.containsKey(hashkey)) {
+			Index = Index + 1
 
-    		Index = Index + 1
+			arrayOfPaths(Index) = new Array[String](5)
 
-    		arrayOfPaths(Index) = new Array[String](5)
+			wordsHashMap.put(hashkey, Index)
 
-    		wordsHashMap.put(hashkey, Index)
+		} else {
 
-    	} else {
-
-		    existeHashkey = true
+			existeHashkey = true
 
 			index_temp =  Index
 
@@ -323,16 +298,14 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 			var c : Int = 0
 
 			arrayOfPaths(Index).foreach { p => 
-
-			  	if (p != null) {
-			  		c = c + 1
-			  	}
-
+				if (p != null) {
+					c = c + 1
+				}
 			}
 
 			j = c
 
-    	}		
+		}		
 		
 		try {
 
@@ -340,13 +313,13 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 
 		} catch {
 
-	    	case e:java.lang.ArrayIndexOutOfBoundsException => {
+			case e:java.lang.ArrayIndexOutOfBoundsException => {
 
-	    		_raise ( new NewIndexerException(w, path_filename) )
+				_raise ( new NewIndexerException(w, path_filename) )
 
-			    monitor ! check
+				monitor ! check
 
-	    	}
+			}
 
 		}
 
@@ -359,7 +332,7 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 
 
 	def showPaths(str : String) {
-	  
+
 		val hashkey : Long = ScanAndIndex.FNV_1(str)
 		var Index = wordsHashMap.get(hashkey)
 		
@@ -392,6 +365,7 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 				}
 			}
 		}
+
 	}
 
 }
@@ -401,129 +375,118 @@ class Indexer(monitor : Monitor) extends Actor with ExceptionModel {
 object Searcher extends Actor {
 
 
-  var index : Int = 0
-  
-  def act() {
-    
-	  println("[Searcher] starting...")
-	  
-	  loop {
-	    react {
-	      case Search => {
-	    	  	var cycle : Boolean = true;
-	      		while(cycle) {
-	      			print("Please enter a string to search files: ")
-					var str = Console.readLine
-					if (str == "exit") {
-						cycle = false
-					} else if (str != null) {
-						search(str)
+	var index : Int = 0
+
+	def act() {
+
+		println("[Searcher] starting...")
+
+		loop {
+			react {
+				case Search => {
+					var cycle : Boolean = true
+					while(cycle) {
+						print("Please enter a string to search files: ")
+						var str = Console.readLine
+						if (str == "exit") {
+							cycle = false
+						} else if (str != null) {
+							search(str)
+						}
+						Thread.sleep(1000)
 					}
-					Thread.sleep(1000)
-	      		}
-	      		sender ! Stop
-	      		this ! Stop
-	      }
-	      case Stop => {
-	    	  println("[Searcher] stoping...")
-	    	  exit()
-	      }
-	    }
-	  }    
-    
-  }
-  
-  def search(s : String) {
-    
+					sender ! Stop
+					this ! Stop
+				}
+				case Stop => {
+					println("[Searcher] stoping...")
+					exit()
+				}
+			}
+		}
+
+	}
+
+	def search(s : String) {
 		Main.indexers.foreach{ i =>  
 			i ! SearchIndexer(s) 
 		}
-
-  }
+	}
 
 }
 
 
-
 class MainActor extends Actor with ExceptionModel {
 
-  def act() {
+	def act() {
 
-	  	var filter : FileFilter = new FileFilter {
-	        def  accept(file : File) : Boolean = return true;
-	    }
+		var filter : FileFilter = new FileFilter {
+			def  accept(file : File) : Boolean = return true;
+		}
 
-	  	// ExceptionController delivers exceptions to interested actors
-	  	ExceptionController.start
+		// ExceptionController delivers exceptions to interested actors
+		ExceptionController.start
 
-        val fScanner : FileScanner = new FileScanner(self)	  	
-	  	
-	  	val monitor = new Monitor(fScanner)
-	  	monitor.start
+		val fScanner : FileScanner = new FileScanner(self)
+		val monitor = new Monitor(fScanner)
+		monitor.start
 
-        fScanner.start        
-        fScanner ! StartFileScanner(monitor)
+		fScanner.start
+		fScanner ! StartFileScanner(monitor)
 
-        val file1 : File = new File("/home/marcelo/")
-    	val fc = new FileCrawler(fScanner, filter, file1)
-    	fc.start
-    	fc ! Crawl
+		val file1 : File = new File("/home/marcelo/")
+		val fc = new FileCrawler(fScanner, filter, file1)
+		fc.start
+		fc ! Crawl
 
 		loop {
 			react {
-			  	case Search => {
-			  		Searcher.start
-			  		Searcher ! Search
-			  	}
-		     	case Stop => {
+				case Search => {
+					Searcher.start
+					Searcher ! Search
+				}
+				case Stop => {
 					println("[MainActor] stopping...")
-
 					monitor ! Stop
-
 					// No longer needed.
 					ExceptionController ! Stop
-
-		     		System.exit(0);
-		     	}
+					System.exit(0)
+				}
 			}
 		}
 
-  }
+	}
 
 }
 
 
 object ScanAndIndex {
-		
 
-	  def FNV_1(word : String) : Long = {
+	def FNV_1(word : String) : Long = {
 
 			val offset_basis : Long = 2166136261L;   // 32bit offset_basis = 2166136261
 			val FNV_prime : Long = 16777619L;		 // 32bit FNV_prime = 16777619
-	
+
 			val wordByteArray : Array[Byte] = word.getBytes();
 			var hash : Long = 0L;
-	
+
 			hash = offset_basis
-	
-		    // for each octet_of_data to be hashed
+
+			// for each octet_of_data to be hashed
 			for( i <- 0 to wordByteArray.length-1 ) {
-	
 				hash = hash * FNV_prime
-	
 				// hash = hash xor octet_of_data
 				hash = hash ^ wordByteArray(i)
-	
 			}
-	
+
 			//return hash
 			hash
-	  }
+	}
 
 
-	  def startIndexing() {	    	    
-		  var m = new MainActor
-		  m.start()
-	  }
-  
+	def startIndexing() {
+		var m = new MainActor
+		m.start()
+	}
+
 }
