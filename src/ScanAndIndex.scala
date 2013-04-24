@@ -62,20 +62,21 @@ object logFileActor extends Actor {
 	  println("[logFileActor] starting... ");
 
 	  loop {
-		  react {
-		      case msgLog(s : String) => {
+		react {
+			case msgLog(s : String) => {
 
-		    	  	try {
-		    	  		var writer  : java.io.BufferedWriter = new java.io.BufferedWriter(output,32 * 1024);
+		    	 try {
+		    	 		var writer  : java.io.BufferedWriter = new java.io.BufferedWriter(output,32 * 1024);
 
 		    	  		writer.write(s+"\n");
 				    	writer.flush();
 
-				    } catch {
+				 } catch {
 				      	case e:java.io.IOException => {
 				      	  e.printStackTrace();
 				      	}
-				    }
+				 }
+
 		      }
 		      case StopLog => {
 
@@ -101,36 +102,34 @@ class FileCrawler(fileScanner : Actor, fileFilter : FileFilter, root : File) ext
 	  println("[FileCrawler] starting...");
 
 	  loop {
-	    react {
-	      case Crawl => {
+	  	react {
+	      		case Crawl => {
 
-		        try {
-		        	crawl(root);
-	            } catch {
-	              case e:InterruptedException =>
-						println("[FileCrawler] Got local exception: " + e);
-						System.exit(0);
-				  case e:Exception =>
-						println("other EXCEPTION"+e.printStackTrace());
-				}
+					try {
+						crawl(root);
+			    	} catch {
+			      		case e:InterruptedException =>
+							println("[FileCrawler] Got local exception: " + e);
+							System.exit(0);
+				  		case e:Exception =>
+							println("other EXCEPTION"+e.printStackTrace());
+					}
 
-  	            this ! Stop
+  	            	this ! Stop
 
-	      }
-	      case Stop =>
+	      		}
+	      		case Stop =>
 
-	        	fileScanner ! Stop
+	        		fileScanner ! Stop
 
-		        println("[FileCrawler] stopping...");
-		        exit();
+		        	println("[FileCrawler] stopping...");
+		        	exit();
 	    }
 	  }
 
 	}
 
-
 	def alreadyIndexed(f : File) : Boolean = return false
-
 
 	@throws(classOf[java.lang.InterruptedException])
 	def crawl(root : File) {
@@ -139,22 +138,22 @@ class FileCrawler(fileScanner : Actor, fileFilter : FileFilter, root : File) ext
 
 		entries = root.listFiles(fileFilter)
 
-        if (entries != null) {
+		if (entries != null) {
 
-        	entries.foreach { entry =>
-	        	  
-        	  	if (!entry.isHidden()) {
-        		  if (entry.isDirectory()) {
-	        	    fileScanner ! Index(entry)
-	        	    crawl(entry)
-	        	  }
-	        	  else if (!alreadyIndexed(entry)) {
-	        		  fileScanner ! Index(entry)
-	        	  }
-        	  	}
-        	}
-        }
-    }
+			entries.foreach { entry =>
+				  
+			  	if (!entry.isHidden()) {
+				  if (entry.isDirectory()) {
+				    fileScanner ! Index(entry)
+				    crawl(entry)
+				  }
+				  else if (!alreadyIndexed(entry)) {
+					  fileScanner ! Index(entry)
+				  }
+			  	}
+			}
+		}
+    	}
 
 }
 
@@ -169,40 +168,39 @@ class Monitor(fscanner : Actor) extends Actor with ExceptionModel {
 
 		loop {
 			react {
-			  case Stop => {
-				  println("[Monitor] stopping...")
-				  exit()
-			  }
-			  case check => {
-				  _try {
+			  	case Stop => {
+					println("[Monitor] stopping...")
+				  	exit()
+			  	}
+			  	case check => {
+					_try {
 					 
-					  while (true) {
-						  _check
-					  }
+						while (true) {
+							_check
+					  	}
 
-				  } _catch {
+				  	} _catch {
 
-					  /*
-				      	We are interested in ConcurrentExceptions.
-					   */
-				        e:ConcurrentException => 
-				          e match {
-							case e:NewIndexerException => {
+						/*
+						  	We are interested in ConcurrentExceptions.
+						*/
+						e:ConcurrentException => 
+							e match {
+								case e:NewIndexerException => {
+									var in = new Indexer(this)
 
-							    var in = new Indexer(this)
+									fscanner ! NewIndexer(in)
 
-								fscanner ! NewIndexer(in)
+									in.start()
 
-							    in.start()
+									in ! Word(e.word, e.path_filename)
 
-							    in ! Word(e.word, e.path_filename)
+									Main.indexers = in :: Main.indexers
 
-							    Main.indexers = in :: Main.indexers
-
-							}
-				          }		    
-				  }
-			  }				  
+								}
+						     }		    
+				  	}
+				}				  
 			}
 		}
 
