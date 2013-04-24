@@ -9,7 +9,6 @@ import java.io.FilenameFilter;
 import scala.collection.mutable;
 
 
-
 case object Stop
 case object Crawl
 case object Index
